@@ -28,10 +28,16 @@
       </div>
 
       <div class="field">
-        <label for="api-key">API Key</label>
-        <input type="password" id="api-key" placeholder="Enter API key..." />
+        <label for="api-key">CGMES API Key</label>
+        <input type="password" id="api-key" placeholder="Enter CGMES API key..." />
       </div>
-      <button id="btn-save-key" class="btn btn-primary btn-block">Save Key</button>
+
+      <div class="field">
+        <label for="openai-key">OpenAI API Key</label>
+        <input type="password" id="openai-key" placeholder="Enter OpenAI API key..." />
+      </div>
+
+      <button id="btn-save-key" class="btn btn-primary btn-block">Save Keys</button>
       <p id="settings-status" class="text-muted"></p>
 
       <hr class="settings-divider" />
@@ -137,6 +143,17 @@
           <select id="query-select">
             <option value="">-- Select a query --</option>
           </select>
+        </div>
+
+        <div class="ai-query-section">
+          <div class="field">
+            <label for="ai-prompt">AI Query Builder</label>
+            <div class="ai-input-row">
+              <input type="text" id="ai-prompt" placeholder="Describe what you want to query, e.g. &quot;Find all substations with voltage above 100kV&quot;" />
+              <button id="btn-ai-generate" class="btn btn-ai" title="Generate SPARQL from description">Generate</button>
+            </div>
+          </div>
+          <p id="ai-status" class="text-muted ai-status"></p>
         </div>
 
         <div class="field">
