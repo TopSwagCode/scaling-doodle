@@ -13,6 +13,7 @@ import init, {
 
 const API_HOST = 'https://cgmes-replay.azurewebsites.net';
 const LS_KEY = 'cim-api-key';
+const LS_OPENAI_KEY = 'cim-openai-key';
 const IDB_NAME = 'cim-sparql-explorer';
 const IDB_STORE = 'handles';
 
@@ -311,6 +312,7 @@ const btnSettings = document.getElementById('btn-settings');
 const settingsDrawer = document.getElementById('settings-drawer');
 const btnCloseSettings = document.getElementById('btn-close-settings');
 const apiKeyInput = document.getElementById('api-key');
+const openaiKeyInput = document.getElementById('openai-key');
 const btnSaveKey = document.getElementById('btn-save-key');
 const settingsStatus = document.getElementById('settings-status');
 const btnPickSource = document.getElementById('btn-pick-source');
@@ -340,6 +342,9 @@ const queryInput = document.getElementById('query-input');
 const btnRunQuery = document.getElementById('btn-run-query');
 const queryResult = document.getElementById('query-result');
 const btnExportCsv = document.getElementById('btn-export-csv');
+const aiPromptInput = document.getElementById('ai-prompt');
+const btnAiGenerate = document.getElementById('btn-ai-generate');
+const aiStatus = document.getElementById('ai-status');
 
 let backdrop = null;
 
@@ -351,11 +356,17 @@ log('Initializing WASM...', 'log-step');
 await init();
 log('WASM ready', 'log-ok');
 
-// Restore API key
+// Restore API keys
 const savedKey = localStorage.getItem(LS_KEY);
 if (savedKey) {
   apiKeyInput.value = savedKey;
-  log('API key restored from localStorage', 'log-info');
+  log('CGMES API key restored from localStorage', 'log-info');
+}
+
+const savedOpenaiKey = localStorage.getItem(LS_OPENAI_KEY);
+if (savedOpenaiKey) {
+  openaiKeyInput.value = savedOpenaiKey;
+  log('OpenAI API key restored from localStorage', 'log-info');
 }
 
 // Default dates (last 24h)
@@ -477,19 +488,35 @@ btnSettings.addEventListener('click', openSettings);
 btnCloseSettings.addEventListener('click', closeSettings);
 
 btnSaveKey.addEventListener('click', () => {
+  const saved = [];
+
   const key = apiKeyInput.value.trim();
   if (key) {
     localStorage.setItem(LS_KEY, key);
-    settingsStatus.textContent = 'Key saved.';
-    log('API key saved to localStorage', 'log-ok');
-    toast('API key saved');
+    saved.push('CGMES API key');
     loadScenarioTypes();
-    setTimeout(closeSettings, 600);
   } else {
     localStorage.removeItem(LS_KEY);
-    settingsStatus.textContent = 'Key cleared.';
-    toast('API key cleared');
-    log('API key cleared', 'log-info');
+  }
+
+  const oaiKey = openaiKeyInput.value.trim();
+  if (oaiKey) {
+    localStorage.setItem(LS_OPENAI_KEY, oaiKey);
+    saved.push('OpenAI API key');
+  } else {
+    localStorage.removeItem(LS_OPENAI_KEY);
+  }
+
+  if (saved.length) {
+    const msg = `Saved: ${saved.join(', ')}`;
+    settingsStatus.textContent = msg;
+    toast(msg);
+    log(msg, 'log-ok');
+    setTimeout(closeSettings, 600);
+  } else {
+    settingsStatus.textContent = 'Keys cleared.';
+    toast('Keys cleared');
+    log('API keys cleared', 'log-info');
   }
 });
 
@@ -787,6 +814,112 @@ async function loadScenario(scenarioTime, scenario, clickedRow) {
     setProgress(0, `Error: ${e.message}`);
   }
 }
+
+// ══════════════════════════════════════════
+// AI Query Builder — OpenAI
+// ══════════════════════════════════════════
+
+const AI_SYSTEM_PROMPT = `You are a SPARQL query generator for IEC CIM (Common Information Model) power systems data.
+
+The RDF data uses these namespaces:
+  PREFIX rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+  PREFIX cim:    <http://iec.ch/TC57/2013/CIM-schema-cim16#>
+  PREFIX md:     <http://iec.ch/TC57/61970-552/ModelDescription/1#>
+  PREFIX entsoe: <http://entsoe.eu/CIM/SchemaExtension/3/1#>
+
+Common CIM classes include:
+  cim:Substation, cim:VoltageLevel, cim:Bay, cim:Line, cim:ACLineSegment,
+  cim:PowerTransformer, cim:PowerTransformerEnd, cim:Switch, cim:Breaker,
+  cim:Disconnector, cim:BusbarSection, cim:GeneratingUnit, cim:SynchronousMachine,
+  cim:ConformLoad, cim:NonConformLoad, cim:EnergyConsumer, cim:Terminal,
+  cim:ConnectivityNode, cim:BaseVoltage, cim:GeographicalRegion,
+  cim:SubGeographicalRegion, cim:ControlArea, cim:EquivalentInjection
+
+Common CIM properties:
+  cim:IdentifiedObject.name, cim:IdentifiedObject.description,
+  cim:IdentifiedObject.mRID, cim:VoltageLevel.Substation,
+  cim:VoltageLevel.BaseVoltage, cim:BaseVoltage.nominalVoltage,
+  cim:Equipment.EquipmentContainer, cim:ConductingEquipment.BaseVoltage,
+  cim:ACLineSegment.length, cim:ACLineSegment.r, cim:ACLineSegment.x,
+  cim:PowerTransformerEnd.ratedU, cim:PowerTransformerEnd.ratedS,
+  cim:Terminal.ConductingEquipment, cim:Terminal.ConnectivityNode,
+  cim:SubGeographicalRegion.Region, cim:Substation.Region
+
+Return ONLY the SPARQL query — no explanation, no markdown fences, no commentary.
+Always include the relevant PREFIX declarations at the top of the query.
+Use LIMIT 100 by default unless the user specifies otherwise.`;
+
+async function generateAiQuery(prompt) {
+  const openaiKey = localStorage.getItem(LS_OPENAI_KEY);
+  if (!openaiKey) {
+    throw new Error('OpenAI API key not set — add it in Settings');
+  }
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${openaiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      temperature: 0.2,
+      messages: [
+        { role: 'system', content: AI_SYSTEM_PROMPT },
+        { role: 'user', content: prompt },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`OpenAI ${res.status}: ${body}`);
+  }
+
+  const data = await res.json();
+  let sparql = data.choices[0].message.content.trim();
+
+  // Strip markdown fences if present
+  sparql = sparql.replace(/^```(?:sparql)?\s*/i, '').replace(/\s*```$/i, '');
+
+  return sparql;
+}
+
+btnAiGenerate.addEventListener('click', async () => {
+  const prompt = aiPromptInput.value.trim();
+  if (!prompt) return;
+
+  btnAiGenerate.disabled = true;
+  btnAiGenerate.textContent = 'Generating...';
+  aiStatus.textContent = '';
+  aiStatus.style.color = '';
+
+  log('', '');
+  log(`AI query: "${prompt}"`, 'log-step');
+
+  try {
+    const sparql = await generateAiQuery(prompt);
+    queryInput.value = sparql;
+    aiStatus.textContent = 'Query generated — review and run it below.';
+    aiStatus.style.color = 'var(--success)';
+    log('AI query generated successfully', 'log-ok');
+  } catch (e) {
+    aiStatus.textContent = e.message;
+    aiStatus.style.color = 'var(--danger)';
+    log(`AI query failed: ${e.message}`, 'log-err');
+  } finally {
+    btnAiGenerate.disabled = false;
+    btnAiGenerate.textContent = 'Generate';
+  }
+});
+
+// Allow Enter key to trigger generation
+aiPromptInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    btnAiGenerate.click();
+  }
+});
 
 // ══════════════════════════════════════════
 // SPARQL query execution
