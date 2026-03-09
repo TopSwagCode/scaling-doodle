@@ -199,6 +199,27 @@ body {
   max-width: 180px;
 }
 
+.btn-grant {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  margin-left: 0.4rem;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius);
+  background: var(--primary-light);
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.btn-grant:hover {
+  background: var(--primary);
+  color: #fff;
+}
+
 #settings-status {
   margin-top: 0.5rem;
 }

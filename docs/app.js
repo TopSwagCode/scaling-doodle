@@ -384,35 +384,72 @@ if (savedKey) loadScenarioTypes();
 if (!savedKey) setTimeout(openSettings, 300);
 
 // Restore saved folder handles from IndexedDB
-try {
-  const savedSource = await loadHandle('source');
-  if (savedSource) {
-    const granted = await verifyPermission(savedSource, 'read');
-    if (granted) {
-      cgmesRootHandle = savedSource;
-      sourceFolderLabel.textContent = cgmesRootHandle.name;
-      log(`Source folder restored: ${cgmesRootHandle.name}`, 'log-ok');
-    } else {
-      log('Source folder found but permission denied — please re-select', 'log-info');
-      sourceFolderLabel.textContent = `${savedSource.name} (needs permission)`;
-    }
-  }
-} catch { /* ignore */ }
+// queryPermission() works without a gesture; requestPermission() needs one.
+// So at init we only check silently. If permission expired, we show a
+// "Grant access" button the user can click (user gesture) to re-grant.
 
-try {
-  const savedDest = await loadHandle('dest');
-  if (savedDest) {
-    const granted = await verifyPermission(savedDest, 'readwrite');
-    if (granted) {
-      destFolderHandle = savedDest;
-      destFolderLabel.textContent = destFolderHandle.name;
-      log(`Destination folder restored: ${destFolderHandle.name}`, 'log-ok');
+async function tryRestoreHandle(key, mode, onSuccess, onNeedsGesture) {
+  try {
+    const handle = await loadHandle(key);
+    if (!handle) return;
+    const perm = await handle.queryPermission({ mode });
+    if (perm === 'granted') {
+      onSuccess(handle);
     } else {
-      log('Destination folder found but permission denied — please re-select', 'log-info');
-      destFolderLabel.textContent = `${savedDest.name} (needs permission)`;
+      onNeedsGesture(handle);
     }
+  } catch { /* ignore */ }
+}
+
+await tryRestoreHandle('source', 'read',
+  (handle) => {
+    cgmesRootHandle = handle;
+    sourceFolderLabel.textContent = handle.name;
+    log(`Source folder restored: ${handle.name}`, 'log-ok');
+  },
+  (handle) => {
+    log(`Source folder "${handle.name}" saved — click Grant access to reconnect`, 'log-info');
+    sourceFolderLabel.textContent = handle.name;
+    const btn = document.createElement('button');
+    btn.className = 'btn-grant';
+    btn.textContent = 'Grant access';
+    btn.addEventListener('click', async () => {
+      const perm = await handle.requestPermission({ mode: 'read' });
+      if (perm === 'granted') {
+        cgmesRootHandle = handle;
+        btn.remove();
+        toast(`Source folder restored: ${handle.name}`);
+        log(`Source folder re-granted: ${handle.name}`, 'log-ok');
+      }
+    });
+    sourceFolderLabel.parentElement.appendChild(btn);
   }
-} catch { /* ignore */ }
+);
+
+await tryRestoreHandle('dest', 'readwrite',
+  (handle) => {
+    destFolderHandle = handle;
+    destFolderLabel.textContent = handle.name;
+    log(`Destination folder restored: ${handle.name}`, 'log-ok');
+  },
+  (handle) => {
+    log(`Destination folder "${handle.name}" saved — click Grant access to reconnect`, 'log-info');
+    destFolderLabel.textContent = handle.name;
+    const btn = document.createElement('button');
+    btn.className = 'btn-grant';
+    btn.textContent = 'Grant access';
+    btn.addEventListener('click', async () => {
+      const perm = await handle.requestPermission({ mode: 'readwrite' });
+      if (perm === 'granted') {
+        destFolderHandle = handle;
+        btn.remove();
+        toast(`Destination folder restored: ${handle.name}`);
+        log(`Destination folder re-granted: ${handle.name}`, 'log-ok');
+      }
+    });
+    destFolderLabel.parentElement.appendChild(btn);
+  }
+);
 
 log(`Base path for stripping: ${FILE_BASE_PATH}`, 'log-info');
 log('Ready.', 'log-done');
