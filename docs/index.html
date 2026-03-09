@@ -55,6 +55,48 @@
         <code class="path-hint">\\fs61\driftdata\Drift\Arkiv\CGMES\</code>
       </div>
 
+      <!-- API Configuration -->
+      <div class="api-config">
+        <label for="api-host">API Host:</label>
+        <input type="text" id="api-host" placeholder="https://your-api-host" />
+        <label for="api-key">API Key:</label>
+        <input type="password" id="api-key" placeholder="API key" />
+      </div>
+
+      <!-- Scenario Search -->
+      <div class="scenario-search">
+        <div class="search-row">
+          <div class="field">
+            <label for="date-from">From:</label>
+            <input type="datetime-local" id="date-from" />
+          </div>
+          <div class="field">
+            <label for="date-to">To:</label>
+            <input type="datetime-local" id="date-to" />
+          </div>
+          <div class="field">
+            <label for="scenario-type-select">Scenario type:</label>
+            <select id="scenario-type-select">
+              <option value="">All</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="take-input">Take:</label>
+            <input type="number" id="take-input" value="100" min="1" max="10000" />
+          </div>
+        </div>
+        <div class="search-actions">
+          <button id="btn-fetch-types">Load Types</button>
+          <button id="btn-fetch-scenarios">Fetch Scenarios</button>
+        </div>
+      </div>
+
+      <!-- Scenario results -->
+      <div id="scenario-results" class="scenario-results" hidden>
+        <p id="scenario-results-info" class="label"></p>
+        <div id="scenario-results-list" class="file-list-scroll"></div>
+      </div>
+
       <div class="controls">
         <label for="scenario-select" class="sr-only">Scenario:</label>
         <select id="scenario-select">

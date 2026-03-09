@@ -8,44 +8,43 @@ import init, {
 } from './pkg/rust_wasm_zip.js';
 
 // ══════════════════════════════════════════
-// Scenarios
+// Scenarios — fetched from API
 // ══════════════════════════════════════════
-// Each scenario is a list of zip file paths relative to the CGMES root folder.
-// Later this will come from an API call — just replace SCENARIOS / activeScenario.
 
-const SCENARIOS = {
-  'OFFLINE 2025-01-03 23h': [
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKSK_TP_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKE_TP_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKKS_SV_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKCO_TP_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKSB_SSH_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKW_TP_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKCO_SV_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKKS_TP_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKKO_SV_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKSK_SSH_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKKO_SSH_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKSB_SV_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKE_SSH_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKSB_TP_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKW_SV_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKKS_SSH_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKW_SSH_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKKO_TP_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKSK_SV_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKCO_SSH_001.zip',
-    'OFFLINE/2025/01/03/20250104T2230Z_23_DKE_SV_001.zip',
-    'Boundry/20230828T0000Z__ENTSOE_TPBD_001.zip',
-    'EQ/2024/12/20/20241215T2300Z__DKKO_EQ_001.zip',
-    'EQ/2024/12/17/20241215T2300Z__DKKS_EQ_001.zip',
-    'EQ/2024/12/20/20241215T2300Z__DKCO_EQ_001.zip',
-    'EQ/2024/12/17/20241215T2300Z__DKW_EQ_001.zip',
-    'EQ/2024/12/20/20241215T2300Z__DKSK_EQ_001.zip',
-    'EQ/2024/12/17/20241215T2300Z__DKSB_EQ_001.zip',
-    'EQ/2024/12/17/20241215T2300Z__DKE_EQ_001.zip',
-  ],
-};
+// Fetched scenario page results: array of { scenarioTime, scenario }
+let fetchedScenarios = [];
+
+/**
+ * Filter out negative scenario values (e.g. "-1", "-10").
+ * Keep text ones (RT, WK, MO, etc.) and normal numbers (00, 01, 2D, etc.).
+ */
+function filterScenarioTypes(types) {
+  return types.filter((t) => !t.startsWith('-'));
+}
+
+/**
+ * Call the scenario API with optional filters.
+ */
+async function apiFetch(path, params = {}) {
+  const host = document.getElementById('api-host').value.replace(/\/+$/, '');
+  const apiKey = document.getElementById('api-key').value;
+  if (!host) throw new Error('API host is required');
+
+  const url = new URL(path, host);
+  for (const [k, v] of Object.entries(params)) {
+    if (v != null && v !== '') url.searchParams.set(k, v);
+  }
+
+  const res = await fetch(url, {
+    headers: {
+      Accept: 'application/json',
+      'X-API-KEY': apiKey,
+    },
+  });
+
+  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
+  return res.json();
+}
 
 // ── Predefined SPARQL queries ──
 // Add new entries here to make them available in the dropdown.
@@ -104,6 +103,19 @@ const progressSection = document.getElementById('progress-section');
 const progressFill = document.getElementById('progress-fill');
 const statusText = document.getElementById('status-text');
 
+// API / scenario search
+const apiHostInput = document.getElementById('api-host');
+const apiKeyInput = document.getElementById('api-key');
+const dateFrom = document.getElementById('date-from');
+const dateTo = document.getElementById('date-to');
+const scenarioTypeSelect = document.getElementById('scenario-type-select');
+const takeInput = document.getElementById('take-input');
+const btnFetchTypes = document.getElementById('btn-fetch-types');
+const btnFetchScenarios = document.getElementById('btn-fetch-scenarios');
+const scenarioResultsDiv = document.getElementById('scenario-results');
+const scenarioResultsInfo = document.getElementById('scenario-results-info');
+const scenarioResultsList = document.getElementById('scenario-results-list');
+
 // SPARQL tab
 const scenarioSelect = document.getElementById('scenario-select');
 const btnLoadScenario = document.getElementById('btn-load-scenario');
@@ -140,12 +152,89 @@ tabs.forEach((tab) => {
   });
 });
 
-// ── Populate scenario dropdown ──
-Object.keys(SCENARIOS).forEach((name) => {
-  const opt = document.createElement('option');
-  opt.value = name;
-  opt.textContent = name;
-  scenarioSelect.appendChild(opt);
+// ── Set default dates (last 24h) ──
+const now = new Date();
+const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+dateFrom.value = toLocalISOString(yesterday);
+dateTo.value = toLocalISOString(now);
+
+function toLocalISOString(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// ── Fetch scenario types ──
+btnFetchTypes.addEventListener('click', async () => {
+  try {
+    btnFetchTypes.disabled = true;
+    const types = await apiFetch('/scenario/scenario');
+    const filtered = filterScenarioTypes(types);
+
+    // Clear and repopulate
+    scenarioTypeSelect.innerHTML = '<option value="">All</option>';
+    for (const t of filtered) {
+      const opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = t;
+      scenarioTypeSelect.appendChild(opt);
+    }
+  } catch (e) {
+    alert(`Failed to load types: ${e.message}`);
+  } finally {
+    btnFetchTypes.disabled = false;
+  }
+});
+
+// ── Fetch scenarios (page endpoint) ──
+btnFetchScenarios.addEventListener('click', async () => {
+  try {
+    btnFetchScenarios.disabled = true;
+
+    const params = {};
+    if (dateFrom.value) params.startDate = new Date(dateFrom.value).toISOString();
+    if (dateTo.value) params.endDate = new Date(dateTo.value).toISOString();
+    if (scenarioTypeSelect.value) params.scenario = scenarioTypeSelect.value;
+    if (takeInput.value) params.take = takeInput.value;
+
+    fetchedScenarios = await apiFetch('/scenario/page', params);
+
+    // Group by scenarioTime for the dropdown
+    const grouped = new Map();
+    for (const item of fetchedScenarios) {
+      const key = item.scenarioTime;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(item.scenario);
+    }
+
+    // Populate scenario select dropdown with unique times
+    scenarioSelect.innerHTML = '<option value="">-- Select scenario --</option>';
+    for (const [time, types] of grouped) {
+      const opt = document.createElement('option');
+      opt.value = time;
+      const d = new Date(time);
+      opt.textContent = `${d.toLocaleString()} (${types.join(', ')})`;
+      scenarioSelect.appendChild(opt);
+    }
+
+    // Show results summary
+    scenarioResultsDiv.hidden = false;
+    scenarioResultsInfo.textContent = `${fetchedScenarios.length} result(s), ${grouped.size} unique time(s)`;
+
+    // Render results list
+    const ul = document.createElement('ul');
+    for (const item of fetchedScenarios) {
+      const li = document.createElement('li');
+      const d = new Date(item.scenarioTime);
+      li.textContent = `${d.toLocaleString()} — ${item.scenario}`;
+      ul.appendChild(li);
+    }
+    scenarioResultsList.innerHTML = '';
+    scenarioResultsList.appendChild(ul);
+  } catch (e) {
+    alert(`Failed to fetch scenarios: ${e.message}`);
+  } finally {
+    btnFetchScenarios.disabled = false;
+  }
 });
 
 // ── Populate predefined queries dropdown ──
@@ -351,68 +440,23 @@ async function unzipAndLoadToGraph(fileHandle, zipPath) {
 }
 
 btnLoadScenario.addEventListener('click', async () => {
-  const scenarioName = scenarioSelect.value;
-  if (!scenarioName) return;
+  const selectedTime = scenarioSelect.value;
+  if (!selectedTime) return;
 
-  const scenarioFiles = SCENARIOS[scenarioName];
-  if (!scenarioFiles || !scenarioFiles.length) return;
+  // Get all scenario entries for this time
+  const entries = fetchedScenarios.filter((s) => s.scenarioTime === selectedTime);
+  if (!entries.length) return;
 
-  // Ask user to pick the CGMES root folder (reuse if already picked)
-  if (!cgmesRootHandle) {
-    try {
-      cgmesRootHandle = await window.showDirectoryPicker({ mode: 'read' });
-    } catch {
-      return; // User cancelled
-    }
-  }
+  // Display selected scenarios
+  const scenarioLabel = `${new Date(selectedTime).toLocaleString()} (${entries.map((e) => e.scenario).join(', ')})`;
+  cimStatus.textContent = `Selected: ${scenarioLabel}`;
+  renderCimFileList(entries.map((e) => `${e.scenarioTime} — ${e.scenario}`));
 
-  btnLoadScenario.disabled = true;
-  btnRunQuery.disabled = true;
+  // TODO: Wire up file download/loading once the download API endpoint is available.
+  // For now, show what was selected.
   cimProgressSection.hidden = false;
-  cimProgressFill.style.width = '0%';
-  queryResult.innerHTML = '';
-
-  // Show file list
-  renderCimFileList(scenarioFiles);
-
-  // Clear graph
-  rdf_clear();
-
-  let loaded = 0;
-  let totalXml = 0;
-  let errors = [];
-
-  for (let i = 0; i < scenarioFiles.length; i++) {
-    const zipPath = scenarioFiles[i];
-    const zipName = zipPath.split('/').pop();
-    cimProgressText.textContent = `[${i + 1}/${scenarioFiles.length}] Unzipping & loading ${zipName}...`;
-    cimProgressFill.style.width = `${Math.round((i / scenarioFiles.length) * 100)}%`;
-
-    try {
-      const fileHandle = await getFileByPath(cgmesRootHandle, zipPath);
-      const result = await unzipAndLoadToGraph(fileHandle, zipPath);
-      totalXml += result.xmlCount;
-      if (result.error) {
-        errors.push(result.error);
-      } else {
-        loaded++;
-      }
-    } catch (e) {
-      errors.push(`${zipName}: ${e.message || e}`);
-    }
-  }
-
-  const tripleCount = rdf_triple_count();
   cimProgressFill.style.width = '100%';
-  btnRunQuery.disabled = false;
-  btnLoadScenario.disabled = false;
-
-  const summary = [`${scenarioName}: ${loaded}/${scenarioFiles.length} zips, ${totalXml} XML files, ${tripleCount.toLocaleString()} triples`];
-  if (errors.length) summary.push(`${errors.length} error(s)`);
-  cimStatus.textContent = summary.join(' | ');
-  cimProgressText.textContent = errors.length
-    ? `Ready. Errors: ${errors.join('; ')}`
-    : 'Ready for queries.';
+  cimProgressText.textContent = `${entries.length} scenario(s) selected. File loading not yet wired to API.`;
 });
 
 function renderCimFileList(files) {
