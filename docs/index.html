@@ -3,134 +3,115 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CIM Tools</title>
+  <title>CIM SPARQL Explorer</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main>
-    <h1>CIM Tools</h1>
 
-    <div id="browser-warning" class="warning" hidden>
-      Your browser does not support the File System Access API.
-      Please use Chrome or Edge.
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <h1>CIM SPARQL Explorer</h1>
+      <button id="btn-settings" class="btn-icon" title="Settings">&#9881;</button>
     </div>
+  </header>
 
-    <nav class="tabs">
-      <button class="tab active" data-tab="zip">Zip Extractor</button>
-      <button class="tab" data-tab="sparql">CIM SPARQL</button>
-    </nav>
-
-    <!-- Tab 1: Zip Extractor -->
-    <section id="tab-zip" class="tab-content active">
-      <p class="subtitle">Extract zip files in your browser using Rust/WASM</p>
-
-      <div class="controls">
-        <button id="btn-source">Select Source Folder</button>
-        <span id="source-label" class="label">No folder selected</span>
+  <!-- Settings drawer (hidden by default) -->
+  <div id="settings-drawer" class="settings-drawer" hidden>
+    <div class="settings-drawer-inner">
+      <div class="settings-header">
+        <span class="settings-title">Settings</span>
+        <button id="btn-close-settings" class="btn-icon" title="Close">&#10005;</button>
       </div>
-
-      <div class="controls">
-        <button id="btn-dest">Select Destination Folder</button>
-        <span id="dest-label" class="label">No folder selected</span>
+      <div class="field">
+        <label for="api-key">API Key</label>
+        <input type="password" id="api-key" placeholder="Enter API key..." />
       </div>
+      <button id="btn-save-key" class="btn btn-primary btn-block">Save Key</button>
+      <p id="settings-status" class="text-muted"></p>
+    </div>
+  </div>
 
-      <div id="file-list"></div>
+  <div class="layout">
 
-      <button id="btn-extract" disabled>Extract All</button>
+    <!-- Left panel: scenario search -->
+    <aside class="panel panel-scenarios">
+      <h2 class="panel-title">Scenarios</h2>
 
-      <div id="progress-section" hidden>
-        <div class="progress-bar">
-          <div id="progress-fill" class="progress-fill"></div>
+      <div class="form-grid">
+        <div class="field">
+          <label for="date-from">From</label>
+          <input type="datetime-local" id="date-from" />
         </div>
-        <p id="status-text" class="status"></p>
-      </div>
-    </section>
-
-    <!-- Tab 2: CIM SPARQL -->
-    <section id="tab-sparql" class="tab-content">
-      <p class="subtitle">Load a CIM scenario (zip files) and run SPARQL queries</p>
-
-      <div class="hint">
-        Select the CGMES root folder. Paste this path in the picker's address bar:
-        <code class="path-hint">\\fs61\driftdata\Drift\Arkiv\CGMES\</code>
-      </div>
-
-      <!-- API Configuration -->
-      <div class="api-config">
-        <label for="api-host">API Host:</label>
-        <input type="text" id="api-host" placeholder="https://your-api-host" />
-        <label for="api-key">API Key:</label>
-        <input type="password" id="api-key" placeholder="API key" />
-      </div>
-
-      <!-- Scenario Search -->
-      <div class="scenario-search">
-        <div class="search-row">
-          <div class="field">
-            <label for="date-from">From:</label>
-            <input type="datetime-local" id="date-from" />
-          </div>
-          <div class="field">
-            <label for="date-to">To:</label>
-            <input type="datetime-local" id="date-to" />
-          </div>
-          <div class="field">
-            <label for="scenario-type-select">Scenario type:</label>
-            <select id="scenario-type-select">
-              <option value="">All</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="take-input">Take:</label>
-            <input type="number" id="take-input" value="100" min="1" max="10000" />
-          </div>
+        <div class="field">
+          <label for="date-to">To</label>
+          <input type="datetime-local" id="date-to" />
         </div>
-        <div class="search-actions">
-          <button id="btn-fetch-types">Load Types</button>
-          <button id="btn-fetch-scenarios">Fetch Scenarios</button>
+        <div class="field">
+          <label for="scenario-type-select">Type</label>
+          <select id="scenario-type-select">
+            <option value="">All</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="take-input">Limit</label>
+          <input type="number" id="take-input" value="100" min="1" max="10000" />
         </div>
       </div>
 
-      <!-- Scenario results -->
-      <div id="scenario-results" class="scenario-results" hidden>
-        <p id="scenario-results-info" class="label"></p>
-        <div id="scenario-results-list" class="file-list-scroll"></div>
-      </div>
+      <button id="btn-fetch-scenarios" class="btn btn-primary btn-block">Fetch Scenarios</button>
 
-      <div class="controls">
-        <label for="scenario-select" class="sr-only">Scenario:</label>
-        <select id="scenario-select">
-          <option value="">-- Select scenario --</option>
-        </select>
-        <button id="btn-load-scenario">Load Scenario</button>
-      </div>
-
-      <span id="cim-status" class="label">Not loaded</span>
-
-      <div id="cim-file-list" class="file-list-scroll"></div>
-
-      <div id="cim-progress-section" hidden>
-        <div class="progress-bar">
-          <div id="cim-progress-fill" class="progress-fill"></div>
+      <!-- Scenario table -->
+      <div id="scenario-table-wrap" hidden>
+        <p id="scenario-results-info" class="text-muted scenario-results-info"></p>
+        <div class="scenario-table-scroll">
+          <table id="scenario-table" class="scenario-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Scenarios</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="scenario-table-body"></tbody>
+          </table>
         </div>
-        <p id="cim-progress-text" class="status"></p>
       </div>
 
-      <div class="query-section">
-        <label for="query-select">Predefined queries:</label>
+      <!-- Selection detail -->
+      <div id="selection-detail" hidden>
+        <h3 class="section-label">Selected</h3>
+        <span id="cim-status" class="text-muted"></span>
+        <div id="cim-file-list" class="result-list"></div>
+        <div id="cim-progress-section" hidden>
+          <div class="progress-bar"><div id="cim-progress-fill" class="progress-fill"></div></div>
+          <p id="cim-progress-text" class="text-muted"></p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Right panel: query -->
+    <section class="panel panel-query">
+      <h2 class="panel-title">SPARQL Query</h2>
+
+      <div class="field">
+        <label for="query-select">Predefined queries</label>
         <select id="query-select">
           <option value="">-- Select a query --</option>
         </select>
-
-        <label for="query-input">SPARQL query:</label>
-        <textarea id="query-input" rows="10" spellcheck="false" placeholder="Enter SPARQL query..."></textarea>
-
-        <button id="btn-run-query" disabled>Run Query</button>
       </div>
+
+      <div class="field">
+        <label for="query-input">Query</label>
+        <textarea id="query-input" rows="12" spellcheck="false" placeholder="Enter SPARQL query..."></textarea>
+      </div>
+
+      <button id="btn-run-query" class="btn btn-primary btn-block" disabled>Run Query</button>
 
       <div id="query-result"></div>
     </section>
-  </main>
+
+  </div>
 
   <script type="module" src="app.js"></script>
 </body>
