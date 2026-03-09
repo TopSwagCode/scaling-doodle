@@ -66,6 +66,7 @@
 
     <!-- Left panel: scenario search -->
     <aside class="panel panel-scenarios" id="panel-left">
+      <div class="panel-bookmark">Scenarios</div>
       <div class="panel-header">
         <h2 class="panel-title-inline">Scenarios</h2>
         <div class="panel-actions">
@@ -118,6 +119,7 @@
 
     <!-- Right panel: query -->
     <section class="panel panel-query" id="panel-right">
+      <div class="panel-bookmark">SPARQL Query</div>
       <div class="panel-header">
         <div class="panel-header-left">
           <h2 class="panel-title-inline">SPARQL Query</h2>
@@ -153,14 +155,14 @@
   </div>
 
   <!-- Console (always visible, fixed bottom) -->
-  <div class="console" id="console-panel">
+  <div class="console collapsed" id="console-panel">
     <div class="console-header">
       <span class="console-title">Console</span>
       <div class="console-actions">
         <span id="console-summary" class="console-summary"></span>
         <div class="progress-bar console-progress"><div id="console-progress-fill" class="progress-fill"></div></div>
         <button id="btn-clear-console" class="btn-icon btn-icon-sm" title="Clear">&#10005;</button>
-        <button id="btn-toggle-console" class="btn-icon btn-icon-sm" title="Toggle console">&#9650;</button>
+        <button id="btn-toggle-console" class="btn-icon btn-icon-sm" title="Toggle console">&#9660;</button>
       </div>
     </div>
     <div id="console-log" class="console-log"></div>

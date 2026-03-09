@@ -364,8 +364,17 @@ btnPickDest.addEventListener('click', async () => {
 // Panel collapse / expand
 // ══════════════════════════════════════════
 
+const panelLeft = document.getElementById('panel-left');
+const panelRight = document.getElementById('panel-right');
+
 function setView(view) {
   layoutEl.dataset.view = view;
+
+  // Toggle collapsed bookmark state
+  panelLeft.classList.toggle('panel-collapsed', view === 'right');
+  panelRight.classList.toggle('panel-collapsed', view === 'left');
+
+  // Show expand button only in split view, restore button only when maximized
   btnExpandLeft.hidden = view !== 'both';
   btnRestoreLeft.hidden = view !== 'left';
   btnExpandRight.hidden = view !== 'both';
@@ -376,6 +385,20 @@ btnExpandLeft.addEventListener('click', () => setView('left'));
 btnRestoreLeft.addEventListener('click', () => setView('both'));
 btnExpandRight.addEventListener('click', () => setView('right'));
 btnRestoreRight.addEventListener('click', () => setView('both'));
+
+// Click bookmark tab to restore split view
+panelLeft.addEventListener('click', (e) => {
+  if (panelLeft.classList.contains('panel-collapsed')) {
+    e.stopPropagation();
+    setView('both');
+  }
+});
+panelRight.addEventListener('click', (e) => {
+  if (panelRight.classList.contains('panel-collapsed')) {
+    e.stopPropagation();
+    setView('both');
+  }
+});
 
 // ══════════════════════════════════════════
 // Load scenario types
