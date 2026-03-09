@@ -1,0 +1,15 @@
+{
+  "name": "rust-wasm-zip",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "rust_wasm_zip_bg.wasm",
+    "rust_wasm_zip.js",
+    "rust_wasm_zip.d.ts"
+  ],
+  "main": "rust_wasm_zip.js",
+  "types": "rust_wasm_zip.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
