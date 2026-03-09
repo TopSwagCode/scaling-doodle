@@ -349,6 +349,112 @@ const aiStatus = document.getElementById('ai-status');
 let backdrop = null;
 
 // ══════════════════════════════════════════
+// AI Query Builder — OpenAI (registered early, before any await)
+// ══════════════════════════════════════════
+
+const AI_SYSTEM_PROMPT = `You are a SPARQL query generator for IEC CIM (Common Information Model) power systems data.
+
+The RDF data uses these namespaces:
+  PREFIX rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+  PREFIX cim:    <http://iec.ch/TC57/2013/CIM-schema-cim16#>
+  PREFIX md:     <http://iec.ch/TC57/61970-552/ModelDescription/1#>
+  PREFIX entsoe: <http://entsoe.eu/CIM/SchemaExtension/3/1#>
+
+Common CIM classes include:
+  cim:Substation, cim:VoltageLevel, cim:Bay, cim:Line, cim:ACLineSegment,
+  cim:PowerTransformer, cim:PowerTransformerEnd, cim:Switch, cim:Breaker,
+  cim:Disconnector, cim:BusbarSection, cim:GeneratingUnit, cim:SynchronousMachine,
+  cim:ConformLoad, cim:NonConformLoad, cim:EnergyConsumer, cim:Terminal,
+  cim:ConnectivityNode, cim:BaseVoltage, cim:GeographicalRegion,
+  cim:SubGeographicalRegion, cim:ControlArea, cim:EquivalentInjection
+
+Common CIM properties:
+  cim:IdentifiedObject.name, cim:IdentifiedObject.description,
+  cim:IdentifiedObject.mRID, cim:VoltageLevel.Substation,
+  cim:VoltageLevel.BaseVoltage, cim:BaseVoltage.nominalVoltage,
+  cim:Equipment.EquipmentContainer, cim:ConductingEquipment.BaseVoltage,
+  cim:ACLineSegment.length, cim:ACLineSegment.r, cim:ACLineSegment.x,
+  cim:PowerTransformerEnd.ratedU, cim:PowerTransformerEnd.ratedS,
+  cim:Terminal.ConductingEquipment, cim:Terminal.ConnectivityNode,
+  cim:SubGeographicalRegion.Region, cim:Substation.Region
+
+Return ONLY the SPARQL query — no explanation, no markdown fences, no commentary.
+Always include the relevant PREFIX declarations at the top of the query.
+Use LIMIT 100 by default unless the user specifies otherwise.`;
+
+async function generateAiQuery(prompt) {
+  const openaiKey = localStorage.getItem(LS_OPENAI_KEY);
+  if (!openaiKey) {
+    throw new Error('OpenAI API key not set — add it in Settings');
+  }
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${openaiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      temperature: 0.2,
+      messages: [
+        { role: 'system', content: AI_SYSTEM_PROMPT },
+        { role: 'user', content: prompt },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`OpenAI ${res.status}: ${body}`);
+  }
+
+  const data = await res.json();
+  let sparql = data.choices[0].message.content.trim();
+
+  // Strip markdown fences if present
+  sparql = sparql.replace(/^```(?:sparql)?\s*/i, '').replace(/\s*```$/i, '');
+
+  return sparql;
+}
+
+btnAiGenerate.addEventListener('click', async () => {
+  const prompt = aiPromptInput.value.trim();
+  if (!prompt) return;
+
+  btnAiGenerate.disabled = true;
+  btnAiGenerate.textContent = 'Generating...';
+  aiStatus.textContent = '';
+  aiStatus.style.color = '';
+
+  log('', '');
+  log(`AI query: "${prompt}"`, 'log-step');
+
+  try {
+    const sparql = await generateAiQuery(prompt);
+    queryInput.value = sparql;
+    aiStatus.textContent = 'Query generated — review and run it below.';
+    aiStatus.style.color = 'var(--success)';
+    log('AI query generated successfully', 'log-ok');
+  } catch (e) {
+    aiStatus.textContent = e.message;
+    aiStatus.style.color = 'var(--danger)';
+    log(`AI query failed: ${e.message}`, 'log-err');
+  } finally {
+    btnAiGenerate.disabled = false;
+    btnAiGenerate.textContent = 'Generate';
+  }
+});
+
+// Allow Enter key to trigger generation
+aiPromptInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    btnAiGenerate.click();
+  }
+});
+
+// ══════════════════════════════════════════
 // Init
 // ══════════════════════════════════════════
 
@@ -552,11 +658,13 @@ const panelLeft = document.getElementById('panel-left');
 const panelRight = document.getElementById('panel-right');
 
 function setView(view) {
-  layoutEl.dataset.view = view;
-
-  // Toggle collapsed bookmark state
+  // Collapsed bookmark state
   panelLeft.classList.toggle('panel-collapsed', view === 'right');
   panelRight.classList.toggle('panel-collapsed', view === 'left');
+
+  // Expanded (full-width) state
+  panelLeft.classList.toggle('panel-expanded', view === 'left');
+  panelRight.classList.toggle('panel-expanded', view === 'right');
 
   // Show expand button only in split view, restore button only when maximized
   btnExpandLeft.hidden = view !== 'both';
@@ -814,112 +922,6 @@ async function loadScenario(scenarioTime, scenario, clickedRow) {
     setProgress(0, `Error: ${e.message}`);
   }
 }
-
-// ══════════════════════════════════════════
-// AI Query Builder — OpenAI
-// ══════════════════════════════════════════
-
-const AI_SYSTEM_PROMPT = `You are a SPARQL query generator for IEC CIM (Common Information Model) power systems data.
-
-The RDF data uses these namespaces:
-  PREFIX rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-  PREFIX cim:    <http://iec.ch/TC57/2013/CIM-schema-cim16#>
-  PREFIX md:     <http://iec.ch/TC57/61970-552/ModelDescription/1#>
-  PREFIX entsoe: <http://entsoe.eu/CIM/SchemaExtension/3/1#>
-
-Common CIM classes include:
-  cim:Substation, cim:VoltageLevel, cim:Bay, cim:Line, cim:ACLineSegment,
-  cim:PowerTransformer, cim:PowerTransformerEnd, cim:Switch, cim:Breaker,
-  cim:Disconnector, cim:BusbarSection, cim:GeneratingUnit, cim:SynchronousMachine,
-  cim:ConformLoad, cim:NonConformLoad, cim:EnergyConsumer, cim:Terminal,
-  cim:ConnectivityNode, cim:BaseVoltage, cim:GeographicalRegion,
-  cim:SubGeographicalRegion, cim:ControlArea, cim:EquivalentInjection
-
-Common CIM properties:
-  cim:IdentifiedObject.name, cim:IdentifiedObject.description,
-  cim:IdentifiedObject.mRID, cim:VoltageLevel.Substation,
-  cim:VoltageLevel.BaseVoltage, cim:BaseVoltage.nominalVoltage,
-  cim:Equipment.EquipmentContainer, cim:ConductingEquipment.BaseVoltage,
-  cim:ACLineSegment.length, cim:ACLineSegment.r, cim:ACLineSegment.x,
-  cim:PowerTransformerEnd.ratedU, cim:PowerTransformerEnd.ratedS,
-  cim:Terminal.ConductingEquipment, cim:Terminal.ConnectivityNode,
-  cim:SubGeographicalRegion.Region, cim:Substation.Region
-
-Return ONLY the SPARQL query — no explanation, no markdown fences, no commentary.
-Always include the relevant PREFIX declarations at the top of the query.
-Use LIMIT 100 by default unless the user specifies otherwise.`;
-
-async function generateAiQuery(prompt) {
-  const openaiKey = localStorage.getItem(LS_OPENAI_KEY);
-  if (!openaiKey) {
-    throw new Error('OpenAI API key not set — add it in Settings');
-  }
-
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${openaiKey}`,
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      temperature: 0.2,
-      messages: [
-        { role: 'system', content: AI_SYSTEM_PROMPT },
-        { role: 'user', content: prompt },
-      ],
-    }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`OpenAI ${res.status}: ${body}`);
-  }
-
-  const data = await res.json();
-  let sparql = data.choices[0].message.content.trim();
-
-  // Strip markdown fences if present
-  sparql = sparql.replace(/^```(?:sparql)?\s*/i, '').replace(/\s*```$/i, '');
-
-  return sparql;
-}
-
-btnAiGenerate.addEventListener('click', async () => {
-  const prompt = aiPromptInput.value.trim();
-  if (!prompt) return;
-
-  btnAiGenerate.disabled = true;
-  btnAiGenerate.textContent = 'Generating...';
-  aiStatus.textContent = '';
-  aiStatus.style.color = '';
-
-  log('', '');
-  log(`AI query: "${prompt}"`, 'log-step');
-
-  try {
-    const sparql = await generateAiQuery(prompt);
-    queryInput.value = sparql;
-    aiStatus.textContent = 'Query generated — review and run it below.';
-    aiStatus.style.color = 'var(--success)';
-    log('AI query generated successfully', 'log-ok');
-  } catch (e) {
-    aiStatus.textContent = e.message;
-    aiStatus.style.color = 'var(--danger)';
-    log(`AI query failed: ${e.message}`, 'log-err');
-  } finally {
-    btnAiGenerate.disabled = false;
-    btnAiGenerate.textContent = 'Generate';
-  }
-});
-
-// Allow Enter key to trigger generation
-aiPromptInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    btnAiGenerate.click();
-  }
-});
 
 // ══════════════════════════════════════════
 // SPARQL query execution
