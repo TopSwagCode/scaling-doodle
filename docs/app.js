@@ -658,11 +658,13 @@ const panelLeft = document.getElementById('panel-left');
 const panelRight = document.getElementById('panel-right');
 
 function setView(view) {
-  layoutEl.dataset.view = view;
-
-  // Toggle collapsed bookmark state
+  // Collapsed bookmark state
   panelLeft.classList.toggle('panel-collapsed', view === 'right');
   panelRight.classList.toggle('panel-collapsed', view === 'left');
+
+  // Expanded (full-width) state
+  panelLeft.classList.toggle('panel-expanded', view === 'left');
+  panelRight.classList.toggle('panel-expanded', view === 'right');
 
   // Show expand button only in split view, restore button only when maximized
   btnExpandLeft.hidden = view !== 'both';
