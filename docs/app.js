@@ -427,11 +427,8 @@ async function loadScenario(scenarioTime, scenario, clickedRow) {
   cimFileList.innerHTML = '';
 
   try {
-    // Fetch the file list for this scenario+time from the API
-    const files = await apiFetch('/scenario/files', {
-      scenario,
-      scenarioTime,
-    });
+    // Fetch the file list: GET /scenario/{scenarioTime}/{scenario}
+    const files = await apiFetch(`/scenario/${encodeURIComponent(scenarioTime)}/${encodeURIComponent(scenario)}`);
 
     // files should be an array of file path strings
     const relativePaths = files.map(stripBasePath);
