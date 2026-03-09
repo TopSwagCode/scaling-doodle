@@ -194,9 +194,9 @@ const scenarioResultsInfo = document.getElementById('scenario-results-info');
 const scenarioTableBody = document.getElementById('scenario-table-body');
 
 const loadDetail = document.getElementById('load-detail');
-const cimFileList = document.getElementById('cim-file-list');
 const cimProgressFill = document.getElementById('cim-progress-fill');
-const cimProgressText = document.getElementById('cim-progress-text');
+const cimProgressSummary = document.getElementById('cim-progress-summary');
+const cimLog = document.getElementById('cim-log');
 
 const querySelect = document.getElementById('query-select');
 const queryInput = document.getElementById('query-input');
@@ -406,6 +406,19 @@ function renderScenarioTable() {
 // Load a single scenario into the RDF graph
 // ══════════════════════════════════════════
 
+function log(msg, cls = '') {
+  const span = document.createElement('span');
+  span.className = `log-line${cls ? ` ${cls}` : ''}`;
+  span.textContent = msg;
+  cimLog.appendChild(span);
+  cimLog.scrollTop = cimLog.scrollHeight;
+}
+
+function setProgress(fraction, summaryText) {
+  cimProgressFill.style.width = `${Math.round(fraction * 100)}%`;
+  if (summaryText) cimProgressSummary.textContent = summaryText;
+}
+
 async function loadScenario(scenarioTime, scenario, clickedRow) {
   // Need source folder
   if (!cgmesRootHandle) {
@@ -420,60 +433,112 @@ async function loadScenario(scenarioTime, scenario, clickedRow) {
 
   const label = `${scenario} @ ${formatTime(scenarioTime)}`;
 
-  // Show progress
+  // Reset UI
   loadDetail.hidden = false;
-  cimProgressFill.style.width = '0%';
-  cimProgressText.textContent = `Fetching file list for ${label}...`;
-  cimFileList.innerHTML = '';
+  cimLog.innerHTML = '';
+  setProgress(0, `Loading ${label}...`);
+
+  log(`Starting load: ${label}`, 'log-info');
+  log(`Fetching file list from API...`, 'log-step');
 
   try {
     // Fetch the file list: GET /scenario/{scenarioTime}/{scenario}
     const files = await apiFetch(`/scenario/${encodeURIComponent(scenarioTime)}/${encodeURIComponent(scenario)}`);
 
-    // files should be an array of file path strings
     const relativePaths = files.map(stripBasePath);
 
-    // Show file list
-    const ul = document.createElement('ul');
+    log(`API returned ${files.length} file(s)`, 'log-ok');
     for (const p of relativePaths) {
-      const li = document.createElement('li');
-      li.textContent = p;
-      ul.appendChild(li);
+      log(`  ${p}`);
     }
-    cimFileList.innerHTML = '';
-    cimFileList.appendChild(ul);
 
-    // Clear graph before loading
+    // Clear graph
+    log(`Clearing RDF graph...`, 'log-step');
     rdf_clear();
+    log(`Graph cleared`, 'log-ok');
 
     let loaded = 0;
     let totalXml = 0;
+    let totalTriples = 0;
     const errors = [];
+    const total = relativePaths.length;
 
-    for (let i = 0; i < relativePaths.length; i++) {
+    for (let i = 0; i < total; i++) {
       const zipPath = relativePaths[i];
       const zipName = zipPath.split('/').pop();
-      cimProgressText.textContent = `[${i + 1}/${relativePaths.length}] Loading ${zipName}...`;
-      cimProgressFill.style.width = `${Math.round((i / relativePaths.length) * 100)}%`;
+      const step = `[${i + 1}/${total}]`;
 
+      setProgress(i / total, `${step} ${zipName}`);
+
+      // Download (read from filesystem)
+      log(`${step} Reading ${zipName}...`, 'log-step');
+
+      let fileHandle;
       try {
-        const fileHandle = await getFileByPath(cgmesRootHandle, zipPath);
-        const result = await unzipAndLoadToGraph(fileHandle, zipPath);
-        totalXml += result.xmlCount;
-        if (result.error) errors.push(result.error);
-        else loaded++;
+        fileHandle = await getFileByPath(cgmesRootHandle, zipPath);
       } catch (e) {
-        errors.push(`${zipName}: ${e.message || e}`);
+        const msg = `${zipName}: file not found — ${e.message || e}`;
+        log(`  ERROR: ${msg}`, 'log-err');
+        errors.push(msg);
+        continue;
       }
+
+      const file = await fileHandle.getFile();
+      const zipBytes = new Uint8Array(await file.arrayBuffer());
+      const sizeMB = (zipBytes.byteLength / 1024 / 1024).toFixed(2);
+      log(`  Read ${sizeMB} MB`, 'log-ok');
+
+      // List entries
+      const entries = list_zip_entries(zipBytes);
+      if (!entries) {
+        const msg = `${zipName}: invalid zip`;
+        log(`  ERROR: ${msg}`, 'log-err');
+        errors.push(msg);
+        continue;
+      }
+
+      const xmlEntries = entries.filter((e) => !e.isDir && e.name.toLowerCase().endsWith('.xml'));
+      log(`  ${entries.length} entries, ${xmlEntries.length} XML file(s) — extracting...`, 'log-step');
+
+      // Extract and load each XML
+      let zipXmlCount = 0;
+      for (let j = 0; j < entries.length; j++) {
+        const entry = entries[j];
+        if (entry.isDir || !entry.name.toLowerCase().endsWith('.xml')) continue;
+
+        const extracted = extract_zip_entry(zipBytes, j);
+        if (!extracted) {
+          log(`  SKIP: could not extract ${entry.name}`, 'log-err');
+          continue;
+        }
+
+        const xmlBytes = new Uint8Array(extracted.bytes);
+        rdf_load_xml(xmlBytes, `http://cim/${extracted.name}`);
+        zipXmlCount++;
+      }
+
+      totalXml += zipXmlCount;
+      loaded++;
+
+      const triplesNow = rdf_triple_count();
+      const newTriples = triplesNow - totalTriples;
+      totalTriples = triplesNow;
+      log(`  Loaded ${zipXmlCount} XML file(s), +${newTriples.toLocaleString()} triples`, 'log-ok');
     }
 
+    // Done
+    setProgress(1, 'Done');
     const tripleCount = rdf_triple_count();
-    cimProgressFill.style.width = '100%';
 
-    const summary = `${loaded}/${relativePaths.length} zips, ${totalXml} XML files, ${tripleCount.toLocaleString()} triples`;
-    cimProgressText.textContent = errors.length
-      ? `${summary} | ${errors.length} error(s): ${errors.join('; ')}`
-      : `${summary} — Ready for queries.`;
+    log('', '');
+    if (errors.length) {
+      log(`Completed with ${errors.length} error(s):`, 'log-err');
+      for (const e of errors) log(`  ${e}`, 'log-err');
+    }
+    log(`${loaded}/${total} zips loaded, ${totalXml} XML files, ${tripleCount.toLocaleString()} triples total`, 'log-done');
+    log(`Ready for queries.`, 'log-done');
+
+    cimProgressSummary.textContent = `${loaded}/${total} zips — ${totalXml} XML — ${tripleCount.toLocaleString()} triples`;
 
     // Update loaded badge everywhere
     loadedScenarioLabel = `${label} — ${tripleCount.toLocaleString()} triples`;
@@ -486,8 +551,8 @@ async function loadScenario(scenarioTime, scenario, clickedRow) {
     // Auto-switch to query panel
     setView('right');
   } catch (e) {
-    cimProgressText.textContent = `Error: ${e.message}`;
-    cimProgressFill.style.width = '0%';
+    log(`FATAL ERROR: ${e.message}`, 'log-err');
+    setProgress(0, `Error: ${e.message}`);
   }
 }
 

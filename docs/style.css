@@ -582,6 +582,38 @@ body {
 
 .result-list li:last-child { border-bottom: none; }
 
+/* ── Load log ── */
+.load-summary {
+  margin-top: 0.5rem;
+  font-weight: 600;
+}
+
+.load-log {
+  margin-top: 0.5rem;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #1e293b;
+  padding: 0.5rem 0.65rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.6;
+  color: #cbd5e1;
+}
+
+.load-log .log-line {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.load-log .log-step { color: #93c5fd; }
+.load-log .log-ok   { color: #86efac; }
+.load-log .log-err  { color: #fca5a5; }
+.load-log .log-info { color: #fde68a; }
+.load-log .log-done { color: #86efac; font-weight: 700; }
+
 /* ══════════════════════════════════════════
    Query results
    ══════════════════════════════════════════ */
