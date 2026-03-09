@@ -13,6 +13,8 @@ import init, {
 
 const API_HOST = 'https://cgmes-replay.azurewebsites.net';
 const LS_KEY = 'cim-api-key';
+const IDB_NAME = 'cim-sparql-explorer';
+const IDB_STORE = 'handles';
 
 // Base path the API returns in file paths.
 // Stripped so paths become relative to the CGMES root folder picked via File System Access API.
@@ -27,6 +29,62 @@ let cgmesRootHandle = null;
 let destFolderHandle = null;
 let loadedScenarioLabel = null;
 let lastQueryResult = null;
+
+// ══════════════════════════════════════════
+// IndexedDB — persist FileSystemDirectoryHandles
+// ══════════════════════════════════════════
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveHandle(key, handle) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(handle, key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+  });
+}
+
+async function loadHandle(key) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get(key);
+    req.onsuccess = () => { db.close(); resolve(req.result || null); };
+    req.onerror = () => { db.close(); reject(req.error); };
+  });
+}
+
+async function verifyPermission(handle, mode = 'read') {
+  if (!handle) return false;
+  if ((await handle.queryPermission({ mode })) === 'granted') return true;
+  if ((await handle.requestPermission({ mode })) === 'granted') return true;
+  return false;
+}
+
+// ══════════════════════════════════════════
+// Toast notifications
+// ══════════════════════════════════════════
+
+function toast(message) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = message;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 300);
+  }, 2500);
+}
 
 // ══════════════════════════════════════════
 // Console — global debug log
@@ -325,6 +383,37 @@ if (savedKey) loadScenarioTypes();
 // Open settings on first visit
 if (!savedKey) setTimeout(openSettings, 300);
 
+// Restore saved folder handles from IndexedDB
+try {
+  const savedSource = await loadHandle('source');
+  if (savedSource) {
+    const granted = await verifyPermission(savedSource, 'read');
+    if (granted) {
+      cgmesRootHandle = savedSource;
+      sourceFolderLabel.textContent = cgmesRootHandle.name;
+      log(`Source folder restored: ${cgmesRootHandle.name}`, 'log-ok');
+    } else {
+      log('Source folder found but permission denied — please re-select', 'log-info');
+      sourceFolderLabel.textContent = `${savedSource.name} (needs permission)`;
+    }
+  }
+} catch { /* ignore */ }
+
+try {
+  const savedDest = await loadHandle('dest');
+  if (savedDest) {
+    const granted = await verifyPermission(savedDest, 'readwrite');
+    if (granted) {
+      destFolderHandle = savedDest;
+      destFolderLabel.textContent = destFolderHandle.name;
+      log(`Destination folder restored: ${destFolderHandle.name}`, 'log-ok');
+    } else {
+      log('Destination folder found but permission denied — please re-select', 'log-info');
+      destFolderLabel.textContent = `${savedDest.name} (needs permission)`;
+    }
+  }
+} catch { /* ignore */ }
+
 log(`Base path for stripping: ${FILE_BASE_PATH}`, 'log-info');
 log('Ready.', 'log-done');
 
@@ -356,11 +445,13 @@ btnSaveKey.addEventListener('click', () => {
     localStorage.setItem(LS_KEY, key);
     settingsStatus.textContent = 'Key saved.';
     log('API key saved to localStorage', 'log-ok');
+    toast('API key saved');
     loadScenarioTypes();
     setTimeout(closeSettings, 600);
   } else {
     localStorage.removeItem(LS_KEY);
     settingsStatus.textContent = 'Key cleared.';
+    toast('API key cleared');
     log('API key cleared', 'log-info');
   }
 });
@@ -370,6 +461,8 @@ btnPickSource.addEventListener('click', async () => {
     cgmesRootHandle = await window.showDirectoryPicker({ mode: 'read' });
     sourceFolderLabel.textContent = cgmesRootHandle.name;
     log(`Source folder selected: ${cgmesRootHandle.name}`, 'log-ok');
+    await saveHandle('source', cgmesRootHandle);
+    toast(`Source folder saved: ${cgmesRootHandle.name}`);
   } catch {
     log('Source folder selection cancelled', 'log-info');
   }
@@ -380,6 +473,8 @@ btnPickDest.addEventListener('click', async () => {
     destFolderHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
     destFolderLabel.textContent = destFolderHandle.name;
     log(`Destination folder selected: ${destFolderHandle.name}`, 'log-ok');
+    await saveHandle('dest', destFolderHandle);
+    toast(`Destination folder saved: ${destFolderHandle.name}`);
   } catch {
     log('Destination folder selection cancelled', 'log-info');
   }
@@ -523,10 +618,6 @@ async function loadScenario(scenarioTime, scenario, clickedRow) {
     openSettings();
     return;
   }
-
-  // Ensure console is open
-  consolePanel.classList.remove('collapsed');
-  btnToggleConsole.innerHTML = '&#9650;';
 
   // Highlight row
   scenarioTableBody.querySelectorAll('tr').forEach((r) => r.classList.remove('loaded'));
