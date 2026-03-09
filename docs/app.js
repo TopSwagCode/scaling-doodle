@@ -138,6 +138,31 @@ function formatTime(iso) {
  * Strip the base path from API-returned file paths.
  * Normalises all slashes to forward slashes and is case-insensitive on the prefix.
  */
+/**
+ * Given a list of file paths, deduplicate by keeping only the highest version.
+ * Version is the _NNN.zip suffix, e.g. _001.zip, _002.zip.
+ * Files that share the same base (everything before _NNN.zip) are grouped,
+ * and only the one with the highest version number is kept.
+ */
+function deduplicateVersions(files) {
+  const groups = new Map(); // baseKey -> { version, path }
+  for (const f of files) {
+    const match = f.match(/^(.+?)_(\d+)\.zip$/i);
+    if (!match) {
+      // No version pattern — keep as-is
+      groups.set(f, { version: -1, path: f });
+      continue;
+    }
+    const [, base, verStr] = match;
+    const ver = parseInt(verStr, 10);
+    const existing = groups.get(base);
+    if (!existing || ver > existing.version) {
+      groups.set(base, { version: ver, path: f });
+    }
+  }
+  return [...groups.values()].map((g) => g.path);
+}
+
 function stripBasePath(filePath) {
   let p = filePath.replace(/\\/g, '/');
   const base = FILE_BASE_PATH.replace(/\\/g, '/');
@@ -518,24 +543,27 @@ async function loadScenario(scenarioTime, scenario, clickedRow) {
     log(`Fetching file list for ${scenario} at ${scenarioTime}...`, 'log-step');
     const files = await apiFetch(`/scenario/${encodeURIComponent(scenarioTime)}/${encodeURIComponent(scenario)}`);
 
-    log(`API returned ${files.length} file path(s):`, 'log-data');
-    for (const f of files) {
-      log(`  raw: ${f}`, 'log-data');
+    log(`API returned ${files.length} file path(s)`, 'log-data');
+
+    // 2. Deduplicate — keep only highest version per file
+    const deduplicated = deduplicateVersions(files);
+    if (deduplicated.length < files.length) {
+      log(`Deduplicated: ${files.length} → ${deduplicated.length} (kept highest versions only)`, 'log-info');
     }
 
-    // 2. Strip base path
-    const relativePaths = files.map(stripBasePath);
+    // 3. Strip base path
+    const relativePaths = deduplicated.map(stripBasePath);
     log(`After stripping base path "${FILE_BASE_PATH}":`, 'log-info');
     for (const p of relativePaths) {
       log(`  rel: ${p}`, 'log-info');
     }
 
-    // 3. Clear graph
+    // 4. Clear graph
     log('Clearing RDF graph...', 'log-step');
     rdf_clear();
     log('Graph cleared', 'log-ok');
 
-    // 4. Load each file
+    // 5. Load each file
     let loaded = 0;
     let totalXml = 0;
     let totalTriples = 0;
