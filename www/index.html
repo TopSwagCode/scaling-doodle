@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WASM Zip Extractor</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>Zip Extractor</h1>
+    <p class="subtitle">Extract zip files in your browser using Rust/WASM</p>
+
+    <div id="browser-warning" class="warning" hidden>
+      Your browser does not support the File System Access API.
+      Please use Chrome or Edge.
+    </div>
+
+    <div class="controls">
+      <button id="btn-source">Select Source Folder</button>
+      <span id="source-label" class="label">No folder selected</span>
+    </div>
+
+    <div class="controls">
+      <button id="btn-dest">Select Destination Folder</button>
+      <span id="dest-label" class="label">No folder selected</span>
+    </div>
+
+    <div id="file-list"></div>
+
+    <button id="btn-extract" disabled>Extract All</button>
+
+    <div id="progress-section" hidden>
+      <div class="progress-bar">
+        <div id="progress-fill" class="progress-fill"></div>
+      </div>
+      <p id="status-text" class="status"></p>
+    </div>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
