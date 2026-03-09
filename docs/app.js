@@ -14,18 +14,72 @@ import init, {
 const API_HOST = 'https://cgmes-replay.azurewebsites.net';
 const LS_KEY = 'cim-api-key';
 
-// The base path the API returns in file paths — stripped so paths are relative to the CGMES root folder.
-const FILE_BASE_PATH = '\\\\fs61\\driftdata\\Drift\\Arkiv\\CGMES\\';
+// Base path the API returns in file paths.
+// Stripped so paths become relative to the CGMES root folder picked via File System Access API.
+const FILE_BASE_PATH = '//fs61.si.energinet.local/DriftData/Drift/Arkiv/CGMES/';
 
 // ══════════════════════════════════════════
 // State
 // ══════════════════════════════════════════
 
 let fetchedScenarios = [];
-let cgmesRootHandle = null;   // Source folder (File System Access API)
-let destFolderHandle = null;  // Destination folder for exports
+let cgmesRootHandle = null;
+let destFolderHandle = null;
 let loadedScenarioLabel = null;
-let lastQueryResult = null;   // For CSV export
+let lastQueryResult = null;
+
+// ══════════════════════════════════════════
+// Console — global debug log
+// ══════════════════════════════════════════
+
+const consoleLog = document.getElementById('console-log');
+const consoleSummary = document.getElementById('console-summary');
+const consoleProgressFill = document.getElementById('console-progress-fill');
+const btnClearConsole = document.getElementById('btn-clear-console');
+const btnToggleConsole = document.getElementById('btn-toggle-console');
+const consolePanel = document.getElementById('console-panel');
+
+function logTs() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function log(msg, cls = '') {
+  const span = document.createElement('span');
+  span.className = `log-line${cls ? ` ${cls}` : ''}`;
+  const ts = document.createElement('span');
+  ts.className = 'log-ts';
+  ts.textContent = `[${logTs()}]`;
+  span.appendChild(ts);
+  span.appendChild(document.createTextNode(msg));
+  consoleLog.appendChild(span);
+  consoleLog.scrollTop = consoleLog.scrollHeight;
+}
+
+function setProgress(fraction, summaryText) {
+  consoleProgressFill.style.width = `${Math.round(fraction * 100)}%`;
+  if (summaryText) consoleSummary.textContent = summaryText;
+}
+
+btnClearConsole.addEventListener('click', (e) => {
+  e.stopPropagation();
+  consoleLog.innerHTML = '';
+  consoleSummary.textContent = '';
+  consoleProgressFill.style.width = '0%';
+});
+
+btnToggleConsole.addEventListener('click', (e) => {
+  e.stopPropagation();
+  consolePanel.classList.toggle('collapsed');
+  btnToggleConsole.innerHTML = consolePanel.classList.contains('collapsed') ? '&#9660;' : '&#9650;';
+});
+
+// Click header to toggle too
+document.querySelector('.console-header').addEventListener('click', () => {
+  consolePanel.classList.toggle('collapsed');
+  btnToggleConsole.innerHTML = consolePanel.classList.contains('collapsed') ? '&#9660;' : '&#9650;';
+});
 
 // ══════════════════════════════════════════
 // Helpers
@@ -39,11 +93,16 @@ function getApiKey() {
   return apiKeyInput.value;
 }
 
+/**
+ * Fetch from the API. Logs the request and response to the console.
+ */
 async function apiFetch(path, params = {}) {
   const url = new URL(path, API_HOST);
   for (const [k, v] of Object.entries(params)) {
     if (v != null && v !== '') url.searchParams.set(k, v);
   }
+
+  log(`GET ${url.pathname}${url.search}`, 'log-http');
 
   const res = await fetch(url, {
     headers: {
@@ -52,8 +111,16 @@ async function apiFetch(path, params = {}) {
     },
   });
 
-  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
-  return res.json();
+  if (!res.ok) {
+    log(`HTTP ${res.status} ${res.statusText}`, 'log-err');
+    throw new Error(`API ${res.status}: ${res.statusText}`);
+  }
+
+  const data = await res.json();
+  const count = Array.isArray(data) ? `${data.length} items` : 'object';
+  log(`HTTP 200 — ${count}`, 'log-ok');
+
+  return data;
 }
 
 function toLocalISOString(d) {
@@ -68,13 +135,24 @@ function formatTime(iso) {
 }
 
 /**
- * Strip the base path prefix from a file path returned by the API,
- * normalising backslashes to forward slashes so it works with File System Access API.
+ * Strip the base path from API-returned file paths.
+ * Normalises all slashes to forward slashes and is case-insensitive on the prefix.
  */
 function stripBasePath(filePath) {
   let p = filePath.replace(/\\/g, '/');
   const base = FILE_BASE_PATH.replace(/\\/g, '/');
-  if (p.startsWith(base)) p = p.slice(base.length);
+
+  // Case-insensitive prefix match
+  if (p.toLowerCase().startsWith(base.toLowerCase())) {
+    p = p.slice(base.length);
+  }
+
+  // Also try without the leading //
+  const baseNoSlash = base.replace(/^\/\//, '');
+  if (p.toLowerCase().startsWith(baseNoSlash.toLowerCase())) {
+    p = p.slice(baseNoSlash.length);
+  }
+
   if (p.startsWith('/')) p = p.slice(1);
   return p;
 }
@@ -97,25 +175,6 @@ async function getFileByPath(root, relativePath) {
   const fileName = parts.pop();
   const dir = parts.length > 0 ? await walkPath(root, parts.join('/')) : root;
   return dir.getFileHandle(fileName);
-}
-
-async function unzipAndLoadToGraph(fileHandle, zipPath) {
-  const file = await fileHandle.getFile();
-  const zipBytes = new Uint8Array(await file.arrayBuffer());
-
-  const entries = list_zip_entries(zipBytes);
-  if (!entries) return { xmlCount: 0, error: `Invalid zip: ${zipPath}` };
-
-  let xmlCount = 0;
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (entry.isDir || !entry.name.toLowerCase().endsWith('.xml')) continue;
-    const extracted = extract_zip_entry(zipBytes, i);
-    if (!extracted) continue;
-    rdf_load_xml(new Uint8Array(extracted.bytes), `http://cim/${extracted.name}`);
-    xmlCount++;
-  }
-  return { xmlCount };
 }
 
 // ══════════════════════════════════════════
@@ -193,11 +252,6 @@ const scenarioTableWrap = document.getElementById('scenario-table-wrap');
 const scenarioResultsInfo = document.getElementById('scenario-results-info');
 const scenarioTableBody = document.getElementById('scenario-table-body');
 
-const loadDetail = document.getElementById('load-detail');
-const cimProgressFill = document.getElementById('cim-progress-fill');
-const cimProgressSummary = document.getElementById('cim-progress-summary');
-const cimLog = document.getElementById('cim-log');
-
 const querySelect = document.getElementById('query-select');
 const queryInput = document.getElementById('query-input');
 const btnRunQuery = document.getElementById('btn-run-query');
@@ -210,11 +264,16 @@ let backdrop = null;
 // Init
 // ══════════════════════════════════════════
 
+log('Initializing WASM...', 'log-step');
 await init();
+log('WASM ready', 'log-ok');
 
 // Restore API key
 const savedKey = localStorage.getItem(LS_KEY);
-if (savedKey) apiKeyInput.value = savedKey;
+if (savedKey) {
+  apiKeyInput.value = savedKey;
+  log('API key restored from localStorage', 'log-info');
+}
 
 // Default dates (last 24h)
 const now = new Date();
@@ -241,6 +300,9 @@ if (savedKey) loadScenarioTypes();
 // Open settings on first visit
 if (!savedKey) setTimeout(openSettings, 300);
 
+log(`Base path for stripping: ${FILE_BASE_PATH}`, 'log-info');
+log('Ready.', 'log-done');
+
 // ══════════════════════════════════════════
 // Settings drawer
 // ══════════════════════════════════════════
@@ -263,37 +325,38 @@ function closeSettings() {
 btnSettings.addEventListener('click', openSettings);
 btnCloseSettings.addEventListener('click', closeSettings);
 
-// Save API key
 btnSaveKey.addEventListener('click', () => {
   const key = apiKeyInput.value.trim();
   if (key) {
     localStorage.setItem(LS_KEY, key);
     settingsStatus.textContent = 'Key saved.';
+    log('API key saved to localStorage', 'log-ok');
     loadScenarioTypes();
     setTimeout(closeSettings, 600);
   } else {
     localStorage.removeItem(LS_KEY);
     settingsStatus.textContent = 'Key cleared.';
+    log('API key cleared', 'log-info');
   }
 });
 
-// Source folder picker
 btnPickSource.addEventListener('click', async () => {
   try {
     cgmesRootHandle = await window.showDirectoryPicker({ mode: 'read' });
     sourceFolderLabel.textContent = cgmesRootHandle.name;
+    log(`Source folder selected: ${cgmesRootHandle.name}`, 'log-ok');
   } catch {
-    // cancelled
+    log('Source folder selection cancelled', 'log-info');
   }
 });
 
-// Destination folder picker
 btnPickDest.addEventListener('click', async () => {
   try {
     destFolderHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
     destFolderLabel.textContent = destFolderHandle.name;
+    log(`Destination folder selected: ${destFolderHandle.name}`, 'log-ok');
   } catch {
-    // cancelled
+    log('Destination folder selection cancelled', 'log-info');
   }
 });
 
@@ -303,7 +366,6 @@ btnPickDest.addEventListener('click', async () => {
 
 function setView(view) {
   layoutEl.dataset.view = view;
-
   btnExpandLeft.hidden = view !== 'both';
   btnRestoreLeft.hidden = view !== 'left';
   btnExpandRight.hidden = view !== 'both';
@@ -321,6 +383,7 @@ btnRestoreRight.addEventListener('click', () => setView('both'));
 
 async function loadScenarioTypes() {
   try {
+    log('Loading scenario types...', 'log-step');
     const types = await apiFetch('/scenario/scenario');
     const filtered = filterScenarioTypes(types);
     scenarioTypeSelect.innerHTML = '<option value="">All</option>';
@@ -330,13 +393,14 @@ async function loadScenarioTypes() {
       opt.textContent = t;
       scenarioTypeSelect.appendChild(opt);
     }
-  } catch {
-    // Silently fail
+    log(`${filtered.length} scenario types loaded (${types.length - filtered.length} negative values filtered)`, 'log-ok');
+  } catch (e) {
+    log(`Failed to load types: ${e.message}`, 'log-err');
   }
 }
 
 // ══════════════════════════════════════════
-// Fetch scenarios — one row per scenario+time
+// Fetch scenarios
 // ══════════════════════════════════════════
 
 btnFetchScenarios.addEventListener('click', async () => {
@@ -346,6 +410,8 @@ btnFetchScenarios.addEventListener('click', async () => {
     btnFetchScenarios.disabled = true;
     btnFetchScenarios.textContent = 'Fetching...';
 
+    log('Fetching scenarios...', 'log-step');
+
     const params = {};
     if (dateFrom.value) params.startDate = new Date(dateFrom.value).toISOString();
     if (dateTo.value) params.endDate = new Date(dateTo.value).toISOString();
@@ -354,9 +420,10 @@ btnFetchScenarios.addEventListener('click', async () => {
 
     fetchedScenarios = await apiFetch('/scenario/page', params);
 
+    log(`${fetchedScenarios.length} scenario(s) returned`, 'log-ok');
     renderScenarioTable();
   } catch (e) {
-    alert(`Failed to fetch scenarios: ${e.message}`);
+    log(`Fetch failed: ${e.message}`, 'log-err');
   } finally {
     btnFetchScenarios.disabled = false;
     btnFetchScenarios.textContent = 'Fetch Scenarios';
@@ -369,19 +436,16 @@ function renderScenarioTable() {
   for (const item of fetchedScenarios) {
     const tr = document.createElement('tr');
 
-    // Time
     const tdTime = document.createElement('td');
     tdTime.className = 'cell-time';
     tdTime.textContent = formatTime(item.scenarioTime);
     tr.appendChild(tdTime);
 
-    // Type
     const tdType = document.createElement('td');
     tdType.className = 'cell-type';
     tdType.textContent = item.scenario;
     tr.appendChild(tdType);
 
-    // Load button
     const tdAction = document.createElement('td');
     const btn = document.createElement('button');
     btn.className = 'btn-load-row';
@@ -394,7 +458,6 @@ function renderScenarioTable() {
     tr.appendChild(tdAction);
 
     tr.addEventListener('click', () => loadScenario(item.scenarioTime, item.scenario, tr));
-
     scenarioTableBody.appendChild(tr);
   }
 
@@ -406,26 +469,16 @@ function renderScenarioTable() {
 // Load a single scenario into the RDF graph
 // ══════════════════════════════════════════
 
-function log(msg, cls = '') {
-  const span = document.createElement('span');
-  span.className = `log-line${cls ? ` ${cls}` : ''}`;
-  span.textContent = msg;
-  cimLog.appendChild(span);
-  cimLog.scrollTop = cimLog.scrollHeight;
-}
-
-function setProgress(fraction, summaryText) {
-  cimProgressFill.style.width = `${Math.round(fraction * 100)}%`;
-  if (summaryText) cimProgressSummary.textContent = summaryText;
-}
-
 async function loadScenario(scenarioTime, scenario, clickedRow) {
-  // Need source folder
   if (!cgmesRootHandle) {
-    alert('Please select the CGMES source folder in Settings first.');
+    log('No source folder selected — opening settings', 'log-err');
     openSettings();
     return;
   }
+
+  // Ensure console is open
+  consolePanel.classList.remove('collapsed');
+  btnToggleConsole.innerHTML = '&#9650;';
 
   // Highlight row
   scenarioTableBody.querySelectorAll('tr').forEach((r) => r.classList.remove('loaded'));
@@ -433,30 +486,33 @@ async function loadScenario(scenarioTime, scenario, clickedRow) {
 
   const label = `${scenario} @ ${formatTime(scenarioTime)}`;
 
-  // Reset UI
-  loadDetail.hidden = false;
-  cimLog.innerHTML = '';
+  log('', '');
+  log(`════ Loading scenario: ${label} ════`, 'log-info');
   setProgress(0, `Loading ${label}...`);
 
-  log(`Starting load: ${label}`, 'log-info');
-  log(`Fetching file list from API...`, 'log-step');
-
   try {
-    // Fetch the file list: GET /scenario/{scenarioTime}/{scenario}
+    // 1. Fetch file list from API
+    log(`Fetching file list for ${scenario} at ${scenarioTime}...`, 'log-step');
     const files = await apiFetch(`/scenario/${encodeURIComponent(scenarioTime)}/${encodeURIComponent(scenario)}`);
 
-    const relativePaths = files.map(stripBasePath);
-
-    log(`API returned ${files.length} file(s)`, 'log-ok');
-    for (const p of relativePaths) {
-      log(`  ${p}`);
+    log(`API returned ${files.length} file path(s):`, 'log-data');
+    for (const f of files) {
+      log(`  raw: ${f}`, 'log-data');
     }
 
-    // Clear graph
-    log(`Clearing RDF graph...`, 'log-step');
-    rdf_clear();
-    log(`Graph cleared`, 'log-ok');
+    // 2. Strip base path
+    const relativePaths = files.map(stripBasePath);
+    log(`After stripping base path "${FILE_BASE_PATH}":`, 'log-info');
+    for (const p of relativePaths) {
+      log(`  rel: ${p}`, 'log-info');
+    }
 
+    // 3. Clear graph
+    log('Clearing RDF graph...', 'log-step');
+    rdf_clear();
+    log('Graph cleared', 'log-ok');
+
+    // 4. Load each file
     let loaded = 0;
     let totalXml = 0;
     let totalTriples = 0;
@@ -469,38 +525,38 @@ async function loadScenario(scenarioTime, scenario, clickedRow) {
       const step = `[${i + 1}/${total}]`;
 
       setProgress(i / total, `${step} ${zipName}`);
+      log(`${step} Opening ${zipPath}...`, 'log-step');
 
-      // Download (read from filesystem)
-      log(`${step} Reading ${zipName}...`, 'log-step');
-
+      // 4a. Locate file on disk
       let fileHandle;
       try {
         fileHandle = await getFileByPath(cgmesRootHandle, zipPath);
+        log(`  Found on disk`, 'log-ok');
       } catch (e) {
-        const msg = `${zipName}: file not found — ${e.message || e}`;
-        log(`  ERROR: ${msg}`, 'log-err');
+        const msg = `${zipPath}: ${e.message || e}`;
+        log(`  ERROR finding file: ${msg}`, 'log-err');
         errors.push(msg);
         continue;
       }
 
+      // 4b. Read bytes
       const file = await fileHandle.getFile();
       const zipBytes = new Uint8Array(await file.arrayBuffer());
       const sizeMB = (zipBytes.byteLength / 1024 / 1024).toFixed(2);
-      log(`  Read ${sizeMB} MB`, 'log-ok');
+      log(`  Read ${sizeMB} MB (${zipBytes.byteLength.toLocaleString()} bytes)`, 'log-ok');
 
-      // List entries
+      // 4c. List zip entries
       const entries = list_zip_entries(zipBytes);
       if (!entries) {
-        const msg = `${zipName}: invalid zip`;
-        log(`  ERROR: ${msg}`, 'log-err');
-        errors.push(msg);
+        log(`  ERROR: not a valid zip`, 'log-err');
+        errors.push(`${zipName}: invalid zip`);
         continue;
       }
 
       const xmlEntries = entries.filter((e) => !e.isDir && e.name.toLowerCase().endsWith('.xml'));
-      log(`  ${entries.length} entries, ${xmlEntries.length} XML file(s) — extracting...`, 'log-step');
+      log(`  Zip has ${entries.length} entries, ${xmlEntries.length} XML file(s)`, 'log-step');
 
-      // Extract and load each XML
+      // 4d. Extract XML and load into RDF
       let zipXmlCount = 0;
       for (let j = 0; j < entries.length; j++) {
         const entry = entries[j];
@@ -512,8 +568,7 @@ async function loadScenario(scenarioTime, scenario, clickedRow) {
           continue;
         }
 
-        const xmlBytes = new Uint8Array(extracted.bytes);
-        rdf_load_xml(xmlBytes, `http://cim/${extracted.name}`);
+        rdf_load_xml(new Uint8Array(extracted.bytes), `http://cim/${extracted.name}`);
         zipXmlCount++;
       }
 
@@ -523,10 +578,10 @@ async function loadScenario(scenarioTime, scenario, clickedRow) {
       const triplesNow = rdf_triple_count();
       const newTriples = triplesNow - totalTriples;
       totalTriples = triplesNow;
-      log(`  Loaded ${zipXmlCount} XML file(s), +${newTriples.toLocaleString()} triples`, 'log-ok');
+      log(`  Loaded ${zipXmlCount} XML, +${newTriples.toLocaleString()} triples (total: ${triplesNow.toLocaleString()})`, 'log-ok');
     }
 
-    // Done
+    // 5. Done
     setProgress(1, 'Done');
     const tripleCount = rdf_triple_count();
 
@@ -535,12 +590,11 @@ async function loadScenario(scenarioTime, scenario, clickedRow) {
       log(`Completed with ${errors.length} error(s):`, 'log-err');
       for (const e of errors) log(`  ${e}`, 'log-err');
     }
-    log(`${loaded}/${total} zips loaded, ${totalXml} XML files, ${tripleCount.toLocaleString()} triples total`, 'log-done');
-    log(`Ready for queries.`, 'log-done');
+    log(`${loaded}/${total} zips loaded, ${totalXml} XML files, ${tripleCount.toLocaleString()} triples`, 'log-done');
+    log('Ready for queries.', 'log-done');
 
-    cimProgressSummary.textContent = `${loaded}/${total} zips — ${totalXml} XML — ${tripleCount.toLocaleString()} triples`;
+    consoleSummary.textContent = `${loaded}/${total} zips | ${totalXml} XML | ${tripleCount.toLocaleString()} triples`;
 
-    // Update loaded badge everywhere
     loadedScenarioLabel = `${label} — ${tripleCount.toLocaleString()} triples`;
     topbarLoaded.textContent = label;
     topbarLoaded.hidden = false;
@@ -548,10 +602,9 @@ async function loadScenario(scenarioTime, scenario, clickedRow) {
     loadedBadge.hidden = false;
     btnRunQuery.disabled = false;
 
-    // Auto-switch to query panel
     setView('right');
   } catch (e) {
-    log(`FATAL ERROR: ${e.message}`, 'log-err');
+    log(`FATAL: ${e.message}`, 'log-err');
     setProgress(0, `Error: ${e.message}`);
   }
 }
@@ -568,15 +621,22 @@ btnRunQuery.addEventListener('click', () => {
   lastQueryResult = null;
   btnExportCsv.hidden = true;
 
+  log('', '');
+  log('Running SPARQL query...', 'log-step');
+  log(sparql, 'log-data');
+
   try {
     const t0 = performance.now();
     const result = rdf_query(sparql);
     const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
 
     if (!result || !result.columns) {
+      log('No results returned', 'log-err');
       queryResult.innerHTML = '<p class="error">No results returned.</p>';
       return;
     }
+
+    log(`${result.rows.length} row(s) in ${elapsed}s`, 'log-ok');
 
     lastQueryResult = result;
 
@@ -613,6 +673,7 @@ btnRunQuery.addEventListener('click', () => {
 
     btnExportCsv.hidden = false;
   } catch (e) {
+    log(`Query error: ${e}`, 'log-err');
     queryResult.innerHTML = `<p class="error">${e}</p>`;
   }
 });
@@ -625,8 +686,6 @@ btnExportCsv.addEventListener('click', async () => {
   if (!lastQueryResult) return;
 
   const { columns, rows } = lastQueryResult;
-
-  // Build CSV
   const escape = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = [columns.map(escape).join(',')];
   for (const row of rows) {
@@ -636,23 +695,22 @@ btnExportCsv.addEventListener('click', async () => {
   const blob = new Blob([csv], { type: 'text/csv' });
 
   if (destFolderHandle) {
-    // Save to destination folder
     const name = `query-${Date.now()}.csv`;
     try {
       const fh = await destFolderHandle.getFileHandle(name, { create: true });
       const writable = await fh.createWritable();
       await writable.write(blob);
       await writable.close();
-      alert(`Saved ${name} to ${destFolderHandle.name}`);
+      log(`Exported ${name} to ${destFolderHandle.name}`, 'log-ok');
     } catch (e) {
-      alert(`Failed to save: ${e.message}`);
+      log(`Export failed: ${e.message}`, 'log-err');
     }
   } else {
-    // Fallback: browser download
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `query-${Date.now()}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
+    log('Exported CSV via browser download', 'log-ok');
   }
 });

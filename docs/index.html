@@ -27,7 +27,6 @@
         <button id="btn-close-settings" class="btn-icon" title="Close">&#10005;</button>
       </div>
 
-      <!-- API Key -->
       <div class="field">
         <label for="api-key">API Key</label>
         <input type="password" id="api-key" placeholder="Enter API key..." />
@@ -37,12 +36,11 @@
 
       <hr class="settings-divider" />
 
-      <!-- Source folder -->
       <div class="settings-section">
         <label class="field-label">Source folder (CGMES root)</label>
         <p class="settings-hint">
-          This is the root folder containing CGMES zip files. Paste this path in the picker:
-          <code>\\fs61\driftdata\Drift\Arkiv\CGMES\</code>
+          Root folder with CGMES zip files. Paste this path in the picker:
+          <code>//fs61.si.energinet.local/DriftData/Drift/Arkiv/CGMES/</code>
         </p>
         <div class="folder-row">
           <button id="btn-pick-source" class="btn btn-ghost">Select folder...</button>
@@ -52,12 +50,9 @@
 
       <hr class="settings-divider" />
 
-      <!-- Destination folder -->
       <div class="settings-section">
         <label class="field-label">Destination folder (query exports)</label>
-        <p class="settings-hint">
-          Where exported CSV query results will be saved.
-        </p>
+        <p class="settings-hint">Where exported CSV query results will be saved.</p>
         <div class="folder-row">
           <button id="btn-pick-dest" class="btn btn-ghost">Select folder...</button>
           <span id="dest-folder-label" class="text-muted">Not selected</span>
@@ -103,7 +98,6 @@
 
         <button id="btn-fetch-scenarios" class="btn btn-primary btn-block">Fetch Scenarios</button>
 
-        <!-- Scenario table (one row per scenario+time) -->
         <div id="scenario-table-wrap" hidden>
           <p id="scenario-results-info" class="text-muted scenario-results-info"></p>
           <div class="scenario-table-scroll">
@@ -118,14 +112,6 @@
               <tbody id="scenario-table-body"></tbody>
             </table>
           </div>
-        </div>
-
-        <!-- Load progress -->
-        <div id="load-detail" hidden>
-          <h3 class="section-label">Loading</h3>
-          <div class="progress-bar"><div id="cim-progress-fill" class="progress-fill"></div></div>
-          <p id="cim-progress-summary" class="text-muted load-summary"></p>
-          <div id="cim-log" class="load-log"></div>
         </div>
       </div>
     </aside>
@@ -164,6 +150,20 @@
       </div>
     </section>
 
+  </div>
+
+  <!-- Console (always visible, fixed bottom) -->
+  <div class="console" id="console-panel">
+    <div class="console-header">
+      <span class="console-title">Console</span>
+      <div class="console-actions">
+        <span id="console-summary" class="console-summary"></span>
+        <div class="progress-bar console-progress"><div id="console-progress-fill" class="progress-fill"></div></div>
+        <button id="btn-clear-console" class="btn-icon btn-icon-sm" title="Clear">&#10005;</button>
+        <button id="btn-toggle-console" class="btn-icon btn-icon-sm" title="Toggle console">&#9650;</button>
+      </div>
+    </div>
+    <div id="console-log" class="console-log"></div>
   </div>
 
   <script type="module" src="app.js"></script>
