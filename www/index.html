@@ -3,39 +3,91 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WASM Zip Extractor</title>
+  <title>CIM Tools</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main>
-    <h1>Zip Extractor</h1>
-    <p class="subtitle">Extract zip files in your browser using Rust/WASM</p>
+    <h1>CIM Tools</h1>
 
     <div id="browser-warning" class="warning" hidden>
       Your browser does not support the File System Access API.
       Please use Chrome or Edge.
     </div>
 
-    <div class="controls">
-      <button id="btn-source">Select Source Folder</button>
-      <span id="source-label" class="label">No folder selected</span>
-    </div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="zip">Zip Extractor</button>
+      <button class="tab" data-tab="sparql">CIM SPARQL</button>
+    </nav>
 
-    <div class="controls">
-      <button id="btn-dest">Select Destination Folder</button>
-      <span id="dest-label" class="label">No folder selected</span>
-    </div>
+    <!-- Tab 1: Zip Extractor -->
+    <section id="tab-zip" class="tab-content active">
+      <p class="subtitle">Extract zip files in your browser using Rust/WASM</p>
 
-    <div id="file-list"></div>
-
-    <button id="btn-extract" disabled>Extract All</button>
-
-    <div id="progress-section" hidden>
-      <div class="progress-bar">
-        <div id="progress-fill" class="progress-fill"></div>
+      <div class="controls">
+        <button id="btn-source">Select Source Folder</button>
+        <span id="source-label" class="label">No folder selected</span>
       </div>
-      <p id="status-text" class="status"></p>
-    </div>
+
+      <div class="controls">
+        <button id="btn-dest">Select Destination Folder</button>
+        <span id="dest-label" class="label">No folder selected</span>
+      </div>
+
+      <div id="file-list"></div>
+
+      <button id="btn-extract" disabled>Extract All</button>
+
+      <div id="progress-section" hidden>
+        <div class="progress-bar">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
+        <p id="status-text" class="status"></p>
+      </div>
+    </section>
+
+    <!-- Tab 2: CIM SPARQL -->
+    <section id="tab-sparql" class="tab-content">
+      <p class="subtitle">Load a CIM scenario (zip files) and run SPARQL queries</p>
+
+      <div class="hint">
+        Select the CGMES root folder. Paste this path in the picker's address bar:
+        <code class="path-hint">\\fs61\driftdata\Drift\Arkiv\CGMES\</code>
+      </div>
+
+      <div class="controls">
+        <label for="scenario-select" class="sr-only">Scenario:</label>
+        <select id="scenario-select">
+          <option value="">-- Select scenario --</option>
+        </select>
+        <button id="btn-load-scenario">Load Scenario</button>
+      </div>
+
+      <span id="cim-status" class="label">Not loaded</span>
+
+      <div id="cim-file-list" class="file-list-scroll"></div>
+
+      <div id="cim-progress-section" hidden>
+        <div class="progress-bar">
+          <div id="cim-progress-fill" class="progress-fill"></div>
+        </div>
+        <p id="cim-progress-text" class="status"></p>
+      </div>
+
+      <div class="query-section">
+        <label for="query-select">Predefined queries:</label>
+        <select id="query-select">
+          <option value="">-- Select a query --</option>
+        </select>
+
+        <label for="query-input">SPARQL query:</label>
+        <textarea id="query-input" rows="10" spellcheck="false" placeholder="Enter SPARQL query..."></textarea>
+
+        <button id="btn-run-query" disabled>Run Query</button>
+      </div>
+
+      <div id="query-result"></div>
+    </section>
   </main>
 
   <script type="module" src="app.js"></script>
